@@ -138,6 +138,7 @@
     padding: 8px 12px;
     cursor: pointer;
     font-family: inherit;
+    text-align: left;
     display: flex;
     justify-content: space-between;
     align-items: baseline;
@@ -152,8 +153,48 @@
     font-variant-numeric: tabular-nums;
     white-space: nowrap;
   }
+  .model-btn .tag {
+    display: inline-block;
+    font-size: 10px;
+    font-weight: 600;
+    padding: 1px 6px;
+    border-radius: 999px;
+    margin-left: 6px;
+    vertical-align: 1px;
+    white-space: nowrap;
+  }
+  .tag.peak { background: #fff7ed; color: #c2410c; }
+  .tag.offpeak { background: #ecfdf5; color: #047857; }
   .model-btn.active { border-color: var(--accent); background: var(--accent-soft); }
   .model-btn.active .prices { color: var(--accent); }
+
+  /* right column stacks result + comparison cards */
+  .right-col { display: flex; flex-direction: column; gap: 20px; }
+
+  /* cross-model comparison table */
+  .table-wrap { overflow-x: auto; }
+  .compare-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .compare-table th, .compare-table td {
+    padding: 8px 10px;
+    text-align: right;
+    border-bottom: 1px solid var(--border);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .compare-table th:first-child, .compare-table td:first-child { text-align: left; }
+  .compare-table th { color: var(--muted); font-weight: 600; font-size: 12px; }
+  .compare-table td.best { color: var(--green); font-weight: 700; }
+  .compare-table .mname { font-weight: 600; }
+  .compare-table .mprice { color: var(--muted); font-size: 12px; }
+
+  /* comparison chart needs a wider label column for long model names */
+  .bar-row.wide { grid-template-columns: 200px 1fr 110px; }
+  .bar-row.wide > div:first-child {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 12px;
+  }
 
   /* ratio slider */
   .slider-row { display: flex; align-items: center; gap: 12px; }
@@ -297,7 +338,8 @@
       </div>
     </div>
 
-    <!-- ============ 计算结果 ============ -->
+    <!-- ============ 结果列 ============ -->
+    <div class="right-col">
     <div class="card">
       <h2>计算结果</h2>
       <div id="results"></div>
@@ -308,6 +350,18 @@
       </div>
 
       <div class="summary-note" id="summary"></div>
+    </div>
+
+    <!-- ============ 模型横向对比 ============ -->
+    <div class="card">
+      <h2>模型横向对比</h2>
+      <div class="hint" style="margin-bottom: 12px;">按当前总量、输入占比与命中率计算，各模型使用自己的预设单价（手动改过的价格不影响此表）</div>
+      <div class="table-wrap"><div id="compareTable"></div></div>
+      <div class="chart">
+        <h3 id="compareChartTitle"></h3>
+        <div id="compareChart"></div>
+      </div>
+    </div>
     </div>
   </div>
 </div>
@@ -327,13 +381,18 @@ const PRESETS = [
 let activePreset = 0;
 
 // Model presets: prices in CNY per million tokens (input / cache-hit input / output).
+// DeepSeek-V4-Flash-0731 has peak and off-peak tiers; off-peak is half price.
 const MODELS = [
   { name: "qwen3.8 max", input: 12, cache: 1.5, output: 36 },
   { name: "kimi-k3", input: 20, cache: 2, output: 100 },
-  { name: "DeepSeek-V4-Flash-0731", input: 3, cache: 0.3, output: 9 },
+  { name: "DeepSeek-V4-Flash-0731", tier: "忙时", input: 3, cache: 0.3, output: 9 },
+  { name: "DeepSeek-V4-Flash-0731", tier: "闲时", input: 1.5, cache: 0.15, output: 4.5 },
   { name: "glm-5.3-flash", input: 0.8, cache: 0.23, output: 2.8 },
 ];
 let activeModel = 0;
+
+// Display name includes the pricing tier, e.g. "DeepSeek-V4-Flash-0731（忙时）"
+const fullName = (m) => (m.tier ? `${m.name}（${m.tier}）` : m.name);
 const fmtMoney = (n) => n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 const fmtTokens = (n) => n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
 
@@ -385,7 +444,7 @@ function renderModels() {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "model-btn";
-    btn.innerHTML = `<span class="name">${m.name}</span><span class="prices">${m.input} / ${m.cache} / ${m.output} 元</span>`;
+    btn.innerHTML = `<span class="name">${m.name}${m.tier ? ` <span class="tag ${m.tier === "闲时" ? "offpeak" : "peak"}">${m.tier}</span>` : ""}</span><span class="prices">${m.input} / ${m.cache} / ${m.output} 元</span>`;
     btn.addEventListener("click", () => applyModel(i));
     grid.appendChild(btn);
   });
@@ -421,6 +480,62 @@ function calc(p, hitRate) {
     hitCost, missCost, outputCost,
     total: hitCost + missCost + outputCost,
   };
+}
+
+// Total cost for a preset model's prices under the current workload shape
+function costWith(model, hitRatePct, p) {
+  const mp = { ...p, inputPrice: model.input, cachePrice: model.cache, outputPrice: model.output };
+  return calc(mp, hitRatePct / 100).total;
+}
+
+function renderCompare() {
+  const p = readParams();
+  const rates = p.hitRates;
+
+  // Table: one row per model, one column per hit rate + baseline
+  const rows = MODELS.map((m) => ({
+    m,
+    cells: rates.map((r) => costWith(m, r, p)),
+    base: costWith(m, 0, p),
+  }));
+  const minPerCol = rates.map((_, i) => Math.min(...rows.map((r) => r.cells[i])));
+  const minBase = Math.min(...rows.map((r) => r.base));
+
+  let html = `<table class="compare-table"><thead><tr>
+    <th>模型（单价 输/缓/出）</th>
+    ${rates.map((r) => `<th>命中 ${r}%</th>`).join("")}
+    <th>无缓存</th>
+  </tr></thead><tbody>`;
+  for (const row of rows) {
+    html += `<tr>
+      <td><div class="mname">${fullName(row.m)}</div><div class="mprice">${row.m.input} / ${row.m.cache} / ${row.m.output} 元</div></td>
+      ${row.cells.map((c, i) => `<td class="${c === minPerCol[i] ? "best" : ""}">${fmtMoney(c)}</td>`).join("")}
+      <td class="${row.base === minBase ? "best" : ""}">${fmtMoney(row.base)}</td>
+    </tr>`;
+  }
+  html += "</tbody></table>";
+  $("compareTable").innerHTML = html;
+
+  // Bar chart at the middle hit rate, cheapest first
+  const midRate = rates.length ? rates[Math.floor((rates.length - 1) / 2)] : null;
+  $("compareChartTitle").textContent =
+    midRate != null ? `费用对比（命中率 ${midRate}%，从低到高）` : "费用对比（无缓存，从低到高）";
+  const list = rows
+    .map((r) => ({ name: fullName(r.m), total: midRate != null ? r.cells[rates.indexOf(midRate)] : r.base }))
+    .sort((a, b) => a.total - b.total);
+  const max = Math.max(...list.map((x) => x.total), 1e-9);
+  const chartEl = $("compareChart");
+  chartEl.innerHTML = "";
+  for (const b of list) {
+    const row = document.createElement("div");
+    row.className = "bar-row wide";
+    row.innerHTML = `
+      <div title="${b.name}">${b.name}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(b.total / max) * 100}%"></div></div>
+      <div class="bar-value">¥ ${fmtMoney(b.total)}</div>
+    `;
+    chartEl.appendChild(row);
+  }
 }
 
 function render() {
@@ -486,6 +601,8 @@ function render() {
   $("summary").innerHTML =
     `综合单价（每百万 tokens）：无缓存基准约 <b>¥ ${baseEffective}</b>；${parts}。` +
     `当前输入占比 ${Math.round(p.inputRatio * 100)}%、输出占比 ${100 - Math.round(p.inputRatio * 100)}%。`;
+
+  renderCompare();
 }
 
 // Recalculate on any input change
