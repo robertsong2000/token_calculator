@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>Token 价格计算器</title>
+<style>
+  :root {
+    --accent: #4f46e5;
+    --accent-soft: #eef2ff;
+    --bg: #f4f5fb;
+    --card: #ffffff;
+    --text: #1f2937;
+    --muted: #6b7280;
+    --border: #e5e7eb;
+    --green: #059669;
+    --green-soft: #ecfdf5;
+    --amber: #d97706;
+    --amber-soft: #fffbeb;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "PingFang SC", "Microsoft YaHei", "Segoe UI", sans-serif;
+    background: var(--bg);
+    color: var(--text);
+    min-height: 100vh;
+    padding: 32px 16px;
+  }
+  .container { max-width: 1080px; margin: 0 auto; }
+
+  header { margin-bottom: 24px; }
+  header h1 {
+    font-size: 26px;
+    font-weight: 700;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+  header h1 .badge {
+    background: linear-gradient(135deg, #6366f1, #8b5cf6);
+    color: #fff;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 999px;
+  }
+  header p { color: var(--muted); margin-top: 6px; font-size: 14px; }
+
+  .layout {
+    display: grid;
+    grid-template-columns: 360px 1fr;
+    gap: 20px;
+    align-items: start;
+  }
+  @media (max-width: 860px) { .layout { grid-template-columns: 1fr; } }
+
+  .card {
+    background: var(--card);
+    border: 1px solid var(--border);
+    border-radius: 14px;
+    padding: 22px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.04);
+  }
+  .card h2 {
+    font-size: 15px;
+    font-weight: 700;
+    margin-bottom: 16px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .card h2::before {
+    content: "";
+    width: 4px; height: 16px;
+    border-radius: 2px;
+    background: var(--accent);
+  }
+
+  .field { margin-bottom: 16px; }
+  .field label {
+    display: block;
+    font-size: 13px;
+    font-weight: 600;
+    margin-bottom: 6px;
+  }
+  .field label .unit { color: var(--muted); font-weight: 400; }
+  .input-wrap { position: relative; display: flex; gap: 8px; }
+  input[type="number"], input[type="text"] {
+    width: 100%;
+    padding: 9px 12px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 15px;
+    outline: none;
+    transition: border-color .15s, box-shadow .15s;
+    background: #fafafa;
+  }
+  input:focus {
+    border-color: var(--accent);
+    box-shadow: 0 0 0 3px rgba(79,70,229,0.12);
+    background: #fff;
+  }
+  select {
+    padding: 9px 10px;
+    border: 1px solid var(--border);
+    border-radius: 8px;
+    font-size: 14px;
+    background: #fafafa;
+    outline: none;
+    cursor: pointer;
+  }
+  .hint { font-size: 12px; color: var(--muted); margin-top: 5px; }
+
+  /* scene preset buttons */
+  .preset-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .preset-btn {
+    border: 1px solid var(--border);
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 8px 10px;
+    text-align: left;
+    cursor: pointer;
+    font-family: inherit;
+    transition: border-color .15s, background .15s;
+  }
+  .preset-btn:hover { border-color: #c7d2fe; }
+  .preset-btn .name { display: block; font-size: 13px; font-weight: 600; }
+  .preset-btn .sub { display: block; font-size: 11px; color: var(--muted); margin-top: 2px; }
+  .preset-btn.active { border-color: var(--accent); background: var(--accent-soft); }
+  .preset-btn.active .sub { color: var(--accent); }
+
+  /* model preset buttons */
+  .model-grid { display: grid; grid-template-columns: 1fr; gap: 8px; }
+  .model-btn {
+    border: 1px solid var(--border);
+    background: #fafafa;
+    border-radius: 8px;
+    padding: 8px 12px;
+    cursor: pointer;
+    font-family: inherit;
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 10px;
+    transition: border-color .15s, background .15s;
+  }
+  .model-btn:hover { border-color: #c7d2fe; }
+  .model-btn .name { font-size: 13px; font-weight: 600; }
+  .model-btn .prices {
+    font-size: 12px;
+    color: var(--muted);
+    font-variant-numeric: tabular-nums;
+    white-space: nowrap;
+  }
+  .model-btn.active { border-color: var(--accent); background: var(--accent-soft); }
+  .model-btn.active .prices { color: var(--accent); }
+
+  /* ratio slider */
+  .slider-row { display: flex; align-items: center; gap: 12px; }
+  input[type="range"] { flex: 1; accent-color: var(--accent); }
+  .ratio-label {
+    min-width: 92px;
+    text-align: right;
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* result rows */
+  .result-block { margin-bottom: 14px; border-radius: 12px; overflow: hidden; border: 1px solid var(--border); }
+  .result-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 16px;
+    background: var(--accent-soft);
+  }
+  .result-head .rate { font-size: 14px; font-weight: 700; color: var(--accent); }
+  .result-head .total { font-size: 18px; font-weight: 700; font-variant-numeric: tabular-nums; }
+  .result-head .total small { font-size: 12px; font-weight: 400; color: var(--muted); }
+  .result-detail {
+    padding: 12px 16px;
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(130px, 1fr));
+    gap: 8px 18px;
+    font-size: 13px;
+    background: #fff;
+  }
+  .result-detail .item { display: flex; justify-content: space-between; gap: 8px; }
+  .result-detail .item span:first-child { color: var(--muted); }
+  .result-detail .item span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+  .saving {
+    padding: 8px 16px;
+    font-size: 13px;
+    background: var(--green-soft);
+    color: var(--green);
+    border-top: 1px solid #d1fae5;
+    font-weight: 600;
+  }
+  .result-block.baseline .result-head { background: var(--amber-soft); }
+  .result-block.baseline .result-head .rate { color: var(--amber); }
+  .result-block.baseline .saving { background: var(--amber-soft); color: var(--amber); border-top-color: #fde68a; }
+
+  /* bar chart */
+  .chart { margin-top: 22px; }
+  .chart h3 { font-size: 14px; font-weight: 700; margin-bottom: 12px; }
+  .bar-row { display: grid; grid-template-columns: 88px 1fr 110px; align-items: center; gap: 10px; margin-bottom: 8px; font-size: 13px; }
+  .bar-track { height: 22px; background: #f1f2f7; border-radius: 6px; overflow: hidden; }
+  .bar-fill {
+    height: 100%;
+    border-radius: 6px;
+    background: linear-gradient(90deg, #6366f1, #8b5cf6);
+    transition: width .35s ease;
+    min-width: 2px;
+  }
+  .bar-row.baseline .bar-fill { background: linear-gradient(90deg, #f59e0b, #fbbf24); }
+  .bar-value { text-align: right; font-variant-numeric: tabular-nums; font-weight: 600; }
+
+  .summary-note {
+    margin-top: 18px;
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.7;
+    padding: 12px 14px;
+    background: #f9fafb;
+    border-radius: 10px;
+    border: 1px dashed var(--border);
+  }
+  .summary-note b { color: var(--text); }
+</style>
+</head>
+<body>
+<div class="container">
+  <header>
+    <h1>Token 价格计算器 <span class="badge">缓存命中率对比</span></h1>
+    <p>输入模型单价，估算在不同缓存命中率下处理指定数量 Token 的总费用</p>
+  </header>
+
+  <div class="layout">
+    <!-- ============ 输入参数 ============ -->
+    <div class="card">
+      <h2>输入参数</h2>
+
+      <div class="field">
+        <label>模型预设 <span class="unit">（单价：输入 / 缓存命中 / 输出，元每百万 tokens）</span></label>
+        <div class="model-grid" id="modelGrid"></div>
+      </div>
+
+      <div class="field">
+        <label>场景预设 <span class="unit">（点击切换输入占比与命中率）</span></label>
+        <div class="preset-grid" id="presetGrid"></div>
+      </div>
+
+      <div class="field">
+        <label>输入价格 <span class="unit">（元 / 百万 tokens）</span></label>
+        <input type="number" id="inputPrice" value="12" min="0" step="0.1" />
+      </div>
+
+      <div class="field">
+        <label>缓存命中输入价格 <span class="unit">（元 / 百万 tokens）</span></label>
+        <input type="number" id="cachePrice" value="1.5" min="0" step="0.1" />
+        <div class="hint">即「输入（缓存命中）」单价</div>
+      </div>
+
+      <div class="field">
+        <label>输出价格 <span class="unit">（元 / 百万 tokens）</span></label>
+        <input type="number" id="outputPrice" value="36" min="0" step="0.1" />
+      </div>
+
+      <div class="field">
+        <label>总 Token 数量</label>
+        <div class="input-wrap">
+          <input type="number" id="tokenCount" value="1" min="0" step="any" />
+          <select id="tokenUnit">
+            <option value="1">个</option>
+            <option value="1e4">万</option>
+            <option value="1e6">百万</option>
+            <option value="1e8" selected>亿</option>
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label>输入 Token 占比 <span class="unit">（其余为输出）</span></label>
+        <div class="slider-row">
+          <input type="range" id="inputRatio" min="0" max="100" value="95" />
+          <div class="ratio-label" id="ratioLabel">95% / 5%</div>
+        </div>
+        <div class="hint">缓存命中率只作用于输入部分；输出部分始终按输出价格计费</div>
+      </div>
+
+      <div class="field">
+        <label>缓存命中率列表 <span class="unit">（% ，逗号分隔）</span></label>
+        <input type="text" id="hitRates" value="90, 95, 98" />
+        <div class="hint">可自行增删，如：85, 90, 95, 98</div>
+      </div>
+    </div>
+
+    <!-- ============ 计算结果 ============ -->
+    <div class="card">
+      <h2>计算结果</h2>
+      <div id="results"></div>
+
+      <div class="chart">
+        <h3>费用对比（含无缓存基准）</h3>
+        <div id="chart"></div>
+      </div>
+
+      <div class="summary-note" id="summary"></div>
+    </div>
+  </div>
+</div>
+
+<script>
+const $ = (id) => document.getElementById(id);
+
+// Scene presets: input token ratio (%) and typical cache hit rates (%) for each workload type.
+// Agent-style tasks resend full context every turn, so hit rates are naturally high;
+// code completion requests have unique contexts, so hit rates stay low.
+const PRESETS = [
+  { name: "Agent 长程任务", ratio: 95, rates: [90, 95, 98] },
+  { name: "通用对话", ratio: 65, rates: [40, 60, 80] },
+  { name: "RAG / 知识库问答", ratio: 85, rates: [60, 75, 90] },
+  { name: "代码补全", ratio: 97, rates: [30, 50, 70] },
+];
+let activePreset = 0;
+
+// Model presets: prices in CNY per million tokens (input / cache-hit input / output).
+const MODELS = [
+  { name: "qwen3.8 max", input: 12, cache: 1.5, output: 36 },
+  { name: "kimi-k3", input: 20, cache: 2, output: 100 },
+  { name: "DeepSeek-V4-Flash-0731", input: 3, cache: 0.3, output: 9 },
+  { name: "glm-5.3-flash", input: 0.8, cache: 0.23, output: 2.8 },
+];
+let activeModel = 0;
+const fmtMoney = (n) => n.toLocaleString("zh-CN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const fmtTokens = (n) => n.toLocaleString("zh-CN", { maximumFractionDigits: 0 });
+
+function updatePresetUI() {
+  document.querySelectorAll(".preset-btn").forEach((btn, i) => {
+    btn.classList.toggle("active", i === activePreset);
+  });
+}
+
+function applyPreset(i) {
+  activePreset = i;
+  $("inputRatio").value = PRESETS[i].ratio;
+  $("hitRates").value = PRESETS[i].rates.join(", ");
+  updatePresetUI();
+  render();
+}
+
+function renderPresets() {
+  const grid = $("presetGrid");
+  PRESETS.forEach((p, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "preset-btn";
+    btn.innerHTML = `<span class="name">${p.name}</span><span class="sub">输入 ${p.ratio}% · 命中率 ${p.rates.join("/")}%</span>`;
+    btn.addEventListener("click", () => applyPreset(i));
+    grid.appendChild(btn);
+  });
+  updatePresetUI();
+}
+
+function updateModelUI() {
+  document.querySelectorAll(".model-btn").forEach((btn, i) => {
+    btn.classList.toggle("active", i === activeModel);
+  });
+}
+
+function applyModel(i) {
+  activeModel = i;
+  $("inputPrice").value = MODELS[i].input;
+  $("cachePrice").value = MODELS[i].cache;
+  $("outputPrice").value = MODELS[i].output;
+  updateModelUI();
+  render();
+}
+
+function renderModels() {
+  const grid = $("modelGrid");
+  MODELS.forEach((m, i) => {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "model-btn";
+    btn.innerHTML = `<span class="name">${m.name}</span><span class="prices">${m.input} / ${m.cache} / ${m.output} 元</span>`;
+    btn.addEventListener("click", () => applyModel(i));
+    grid.appendChild(btn);
+  });
+  updateModelUI();
+}
+
+function readParams() {
+  return {
+    inputPrice: parseFloat($("inputPrice").value) || 0,
+    cachePrice: parseFloat($("cachePrice").value) || 0,
+    outputPrice: parseFloat($("outputPrice").value) || 0,
+    totalTokens: (parseFloat($("tokenCount").value) || 0) * parseFloat($("tokenUnit").value),
+    inputRatio: (parseFloat($("inputRatio").value) || 0) / 100,
+    hitRates: $("hitRates").value
+      .split(/[,，\s]+/)
+      .map((s) => parseFloat(s))
+      .filter((n) => !isNaN(n) && n >= 0 && n <= 100)
+      .sort((a, b) => a - b),
+  };
+}
+
+// Cost breakdown for a given cache hit rate (0..1)
+function calc(p, hitRate) {
+  const inputTokens = p.totalTokens * p.inputRatio;
+  const outputTokens = p.totalTokens * (1 - p.inputRatio);
+  const hitTokens = inputTokens * hitRate;
+  const missTokens = inputTokens - hitTokens;
+  const hitCost = (hitTokens / 1e6) * p.cachePrice;
+  const missCost = (missTokens / 1e6) * p.inputPrice;
+  const outputCost = (outputTokens / 1e6) * p.outputPrice;
+  return {
+    hitTokens, missTokens, outputTokens,
+    hitCost, missCost, outputCost,
+    total: hitCost + missCost + outputCost,
+  };
+}
+
+function render() {
+  const p = readParams();
+  $("ratioLabel").textContent = `${Math.round(p.inputRatio * 100)}% / ${100 - Math.round(p.inputRatio * 100)}%`;
+
+  const baseline = calc(p, 0);
+  const rows = p.hitRates.map((r) => ({ rate: r, ...calc(p, r / 100) }));
+
+  // Result blocks, descending rate first
+  const resultsEl = $("results");
+  resultsEl.innerHTML = "";
+  const all = [...rows].reverse().concat([{ rate: 0, ...baseline, isBaseline: true }]);
+
+  for (const row of all) {
+    const saved = baseline.total - row.total;
+    const savedPct = baseline.total > 0 ? (saved / baseline.total) * 100 : 0;
+    const block = document.createElement("div");
+    block.className = "result-block" + (row.isBaseline ? " baseline" : "");
+    block.innerHTML = `
+      <div class="result-head">
+        <span class="rate">${row.isBaseline ? "基准（缓存命中率 0%）" : `缓存命中率 ${row.rate}%`}</span>
+        <span class="total">¥ ${fmtMoney(row.total)} <small>/ 共 ${fmtTokens(p.totalTokens)} tokens</small></span>
+      </div>
+      <div class="result-detail">
+        <div class="item"><span>命中缓存 tokens</span><span>${fmtTokens(row.hitTokens)}</span></div>
+        <div class="item"><span>未命中 tokens</span><span>${fmtTokens(row.missTokens)}</span></div>
+        <div class="item"><span>输出 tokens</span><span>${fmtTokens(row.outputTokens)}</span></div>
+        <div class="item"><span>命中费用</span><span>¥ ${fmtMoney(row.hitCost)}</span></div>
+        <div class="item"><span>未命中费用</span><span>¥ ${fmtMoney(row.missCost)}</span></div>
+        <div class="item"><span>输出费用</span><span>¥ ${fmtMoney(row.outputCost)}</span></div>
+      </div>
+      <div class="saving">${
+        row.isBaseline
+          ? "对比起点：输入全部按原价计费"
+          : `较无缓存节省 ¥ ${fmtMoney(saved)}（约 ${savedPct.toFixed(1)}%）`
+      }</div>
+    `;
+    resultsEl.appendChild(block);
+  }
+
+  // Bar chart: baseline + each hit rate
+  const max = Math.max(baseline.total, ...rows.map((r) => r.total), 1e-9);
+  const chartEl = $("chart");
+  chartEl.innerHTML = "";
+  const bars = [...rows].reverse().concat([{ rate: 0, total: baseline.total, isBaseline: true }]);
+  for (const b of bars) {
+    const row = document.createElement("div");
+    row.className = "bar-row" + (b.isBaseline ? " baseline" : "");
+    row.innerHTML = `
+      <div>${b.isBaseline ? "无缓存" : `命中 ${b.rate}%`}</div>
+      <div class="bar-track"><div class="bar-fill" style="width:${(b.total / max) * 100}%"></div></div>
+      <div class="bar-value">¥ ${fmtMoney(b.total)}</div>
+    `;
+    chartEl.appendChild(row);
+  }
+
+  // Summary: effective blended price per million tokens
+  const parts = rows
+    .map((r) => `命中 ${r.rate}% 时约 <b>¥ ${((r.total / (p.totalTokens || 1)) * 1e6).toFixed(2)}</b>`)
+    .join("，");
+  const baseEffective = ((baseline.total / (p.totalTokens || 1)) * 1e6).toFixed(2);
+  $("summary").innerHTML =
+    `综合单价（每百万 tokens）：无缓存基准约 <b>¥ ${baseEffective}</b>；${parts}。` +
+    `当前输入占比 ${Math.round(p.inputRatio * 100)}%、输出占比 ${100 - Math.round(p.inputRatio * 100)}%。`;
+}
+
+// Recalculate on any input change
+["inputPrice", "cachePrice", "outputPrice", "tokenCount", "tokenUnit", "inputRatio", "hitRates"].forEach((id) => {
+  $(id).addEventListener("input", render);
+  $(id).addEventListener("change", render);
+});
+
+// Manual edits to ratio / hit rates deselect the active preset (custom configuration)
+["inputRatio", "hitRates"].forEach((id) => {
+  $(id).addEventListener("input", () => { activePreset = -1; updatePresetUI(); });
+});
+
+// Manual price edits deselect the active model preset
+["inputPrice", "cachePrice", "outputPrice"].forEach((id) => {
+  $(id).addEventListener("input", () => { activeModel = -1; updateModelUI(); });
+});
+
+renderModels();
+renderPresets();
+render();
+</script>
+</body>
+</html>
